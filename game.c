@@ -23,6 +23,19 @@ typedef struct {
     int banker_total;
 } GameResult;
 
+// Struktura do przechowywania danych symulacji
+typedef struct {
+    Card player_cards[3];
+    int player_card_count;
+    Card banker_cards[3];
+    int banker_card_count;
+    int player_final_total;
+    int banker_final_total;
+    Winner winner;
+    int player_natural;  // 1 jeśli gracz miał natural (8 lub 9), 0 w przeciwnym razie
+    int banker_natural;  // 1 jeśli bank miał natural (8 lub 9), 0 w przeciwnym razie
+} SimulationData;
+
 // Global variables
 int coins = 1000;
 Deck deck;
@@ -32,6 +45,10 @@ int results_count = 0;        // Liczba zapisanych wyników
 // Function prototypes
 void start();
 void game_loop();
+void simulation_mode();
+void run_simulation(int num_games, const char* filename);
+void save_simulation_to_csv(SimulationData* data, int count, const char* filename);
+SimulationData simulate_single_game();
 void play_round(int bet_type, int bet_amount);
 Winner evaluate_winner(int p_total, int b_total);
 void init_deck();
@@ -52,20 +69,241 @@ int validate_input(int min, int max);
 void add_result(Winner winner, int player_total, int banker_total);
 void display_last_results();
 const char* winner_symbol(Winner w);
+void card_to_string(Card card, char* buffer);
 
 // Main function
 int main() {
     srand(time(NULL));
-    start();
-    return 0;
-}
-
-// Initialize the game
-void start() {
+    
     printf("╔══════════════════════════════════════╗\n");
     printf("║               BACCARAT               ║\n");
     printf("╚══════════════════════════════════════╝\n\n");
     
+    printf("Choose mode:\n");
+    printf("1 - 🎮 Play Game\n");
+    printf("2 - 🤖 AI Simulation Mode\n");
+    printf("Your choice (1-2): ");
+    
+    int mode = validate_input(1, 2);
+    
+    if (mode == 1) {
+        start();
+    } else {
+        simulation_mode();
+    }
+    
+    return 0;
+}
+
+// Simulation mode menu
+void simulation_mode() {
+    printf("\nSIMULATION MODE\n");
+    printf("═══════════════════════\n");
+    printf("Choose simulation size:\n");
+    printf("1 - 1,000 games\n");
+    printf("2 - 10,000 games\n");
+    printf("3 - 100,000 games\n");
+    printf("4 - Custom amount\n");
+    printf("Your choice (1-4): ");
+    
+    int choice = validate_input(1, 4);
+    int num_games;
+    
+    switch (choice) {
+        case 1: num_games = 1000; break;
+        case 2: num_games = 10000; break;
+        case 3: num_games = 100000; break;
+        case 4:
+            printf("Enter number of games (1-1000000): ");
+            num_games = validate_input(1, 1000000);
+            break;
+        default: num_games = 100000;
+    }
+    
+    char filename[100];
+    printf("Enter filename for CSV output (without .csv extension): ");
+    scanf("%99s", filename);
+    strcat(filename, ".csv");
+    
+    printf("\n🚀 Starting simulation of %d games...\n", num_games);
+    printf("📁 Results will be saved to: %s\n\n", filename);
+    
+    run_simulation(num_games, filename);
+}
+
+// Run the simulation
+void run_simulation(int num_games, const char* filename) {
+    SimulationData* simulation_data = malloc(num_games * sizeof(SimulationData));
+    if (!simulation_data) {
+        printf("❌ Memory allocation failed!\n");
+        return;
+    }
+    
+    init_deck();
+    shuffle_deck();
+    
+    clock_t start_time = clock();
+    
+    for (int i = 0; i < num_games; i++) {
+        // Reshuffle if deck is low
+        if (deck.top > 42) {  // Keep more cards for safety
+            init_deck();
+            shuffle_deck();
+        }
+        
+        simulation_data[i] = simulate_single_game();
+        
+        // Progress indicator
+        if ((i + 1) % 10000 == 0 || i == num_games - 1) {
+            printf("Progress: %d/%d games (%.1f%%)\n", 
+                   i + 1, num_games, ((float)(i + 1) / num_games) * 100.0);
+        }
+    }
+    
+    clock_t end_time = clock();
+    double time_taken = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+    
+    printf("\n✅ Simulation completed!\n");
+    printf("⏱️  Time taken: %.2f seconds\n", time_taken);
+    printf("🎯 Games per second: %.0f\n", num_games / time_taken);
+    
+    // Save results to CSV
+    save_simulation_to_csv(simulation_data, num_games, filename);
+    
+    // Display summary statistics
+    int banker_wins = 0, player_wins = 0, ties = 0;
+    int naturals = 0;
+    
+    for (int i = 0; i < num_games; i++) {
+        switch (simulation_data[i].winner) {
+            case BANKER: banker_wins++; break;
+            case PLAYER: player_wins++; break;
+            case TIE: ties++; break;
+        }
+        if (simulation_data[i].player_natural || simulation_data[i].banker_natural) {
+            naturals++;
+        }
+    }
+    
+    printf("\nSIMULATION STATISTICS:\n");
+    printf("════════════════════════\n");
+    printf("Banker wins: %d (%.2f%%)\n", banker_wins, (float)banker_wins / num_games * 100);
+    printf("Player wins: %d (%.2f%%)\n", player_wins, (float)player_wins / num_games * 100);
+    printf("Ties: %d (%.2f%%)\n", ties, (float)ties / num_games * 100);
+    printf("Games with naturals: %d (%.2f%%)\n", naturals, (float)naturals / num_games * 100);
+    printf("Data saved to: %s\n", filename);
+    
+    free(simulation_data);
+    printf("\n Simulation complete\n");
+}
+
+// Simulate a single game and return data
+SimulationData simulate_single_game() {
+    SimulationData data = {0};
+    
+    // Deal initial cards
+    data.player_cards[0] = draw_card();
+    data.banker_cards[0] = draw_card();
+    data.player_cards[1] = draw_card();
+    data.banker_cards[1] = draw_card();
+    data.player_card_count = 2;
+    data.banker_card_count = 2;
+    
+    // Calculate initial totals
+    int player_total = calculate_total(data.player_cards, 2);
+    int banker_total = calculate_total(data.banker_cards, 2);
+    
+    // Check for naturals
+    data.player_natural = (player_total >= 8) ? 1 : 0;
+    data.banker_natural = (banker_total >= 8) ? 1 : 0;
+    
+    // Apply third card rules if no natural
+    if (player_total < 8 && banker_total < 8) {
+        int player_third_value = -1;
+        
+        // Player's third card
+        if (should_player_draw_third(player_total)) {
+            data.player_cards[2] = draw_card();
+            data.player_card_count = 3;
+            player_third_value = card_value(data.player_cards[2]);
+            player_total = calculate_total(data.player_cards, 3);
+        }
+        
+        // Banker's third card
+        if (should_banker_draw_third(banker_total, player_third_value)) {
+            data.banker_cards[2] = draw_card();
+            data.banker_card_count = 3;
+            banker_total = calculate_total(data.banker_cards, 3);
+        }
+    }
+    
+    data.player_final_total = player_total;
+    data.banker_final_total = banker_total;
+    data.winner = evaluate_winner(player_total, banker_total);
+    
+    return data;
+}
+
+// Save simulation data to CSV file
+void save_simulation_to_csv(SimulationData* data, int count, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        printf("❌ Error: Could not create file %s\n", filename);
+        return;
+    }
+    
+    // Write header
+    fprintf(file, "game_id,");
+    fprintf(file, "player_card1_rank,player_card1_suit,");
+    fprintf(file, "player_card2_rank,player_card2_suit,");
+    fprintf(file, "player_card3_rank,player_card3_suit,");
+    fprintf(file, "player_card_count,");
+    fprintf(file, "banker_card1_rank,banker_card1_suit,");
+    fprintf(file, "banker_card2_rank,banker_card2_suit,");
+    fprintf(file, "banker_card3_rank,banker_card3_suit,");
+    fprintf(file, "banker_card_count,");
+    fprintf(file, "player_final_total,banker_final_total,");
+    fprintf(file, "player_natural,banker_natural,");
+    fprintf(file, "winner\n");
+    
+    // Write data
+    for (int i = 0; i < count; i++) {
+        SimulationData* game = &data[i];
+        
+        fprintf(file, "%d,", i + 1);
+        
+        // Player cards
+        fprintf(file, "%d,%d,", game->player_cards[0].rank, game->player_cards[0].suit);
+        fprintf(file, "%d,%d,", game->player_cards[1].rank, game->player_cards[1].suit);
+        if (game->player_card_count == 3) {
+            fprintf(file, "%d,%d,", game->player_cards[2].rank, game->player_cards[2].suit);
+        } else {
+            fprintf(file, "0,0,");  // No third card
+        }
+        fprintf(file, "%d,", game->player_card_count);
+        
+        // Banker cards
+        fprintf(file, "%d,%d,", game->banker_cards[0].rank, game->banker_cards[0].suit);
+        fprintf(file, "%d,%d,", game->banker_cards[1].rank, game->banker_cards[1].suit);
+        if (game->banker_card_count == 3) {
+            fprintf(file, "%d,%d,", game->banker_cards[2].rank, game->banker_cards[2].suit);
+        } else {
+            fprintf(file, "0,0,");  // No third card
+        }
+        fprintf(file, "%d,", game->banker_card_count);
+        
+        // Totals and results
+        fprintf(file, "%d,%d,", game->player_final_total, game->banker_final_total);
+        fprintf(file, "%d,%d,", game->player_natural, game->banker_natural);
+        fprintf(file, "%d\n", game->winner);  // 0=BANKER, 1=PLAYER, 2=TIE
+    }
+    
+    fclose(file);
+    printf("💾 Successfully saved %d games to %s\n", count, filename);
+}
+
+// Initialize the game
+void start() {
     printf("Welcome! You start with %d coins.\n", coins);
     init_deck();
     shuffle_deck();
@@ -310,7 +548,7 @@ Winner evaluate_winner(int p_total, int b_total) {
 // Get bet type from user
 int get_bet_type() {
     printf("Choose your bet:\n");
-    printf("0 - 🏦 Banker (1:1);
+    printf("0 - 🏦 Banker (1:1)\n");
     printf("1 - 👤 Player (1:1)\n");
     printf("2 - 🤝 Tie (8:1)\n");
     printf("Your choice (0-2): ");
@@ -411,6 +649,11 @@ const char* suit_name(Suit suit) {
         case SPADES: return "Spades";
         default: return "Unknown";
     }
+}
+
+// Convert card to string for CSV output
+void card_to_string(Card card, char* buffer) {
+    sprintf(buffer, "%d-%d", card.rank, card.suit);
 }
 
 // Display current game statistics
