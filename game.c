@@ -17,9 +17,17 @@ typedef struct {
     int top;
 } Deck;
 
+typedef struct {
+    Winner winner;
+    int player_total;
+    int banker_total;
+} GameResult;
+
 // Global variables
 int coins = 1000;
 Deck deck;
+GameResult last_results[10];  // Historia ostatnich 10 wyników
+int results_count = 0;        // Liczba zapisanych wyników
 
 // Function prototypes
 void start();
@@ -39,9 +47,11 @@ void display_cards(Card* cards, int count, const char* player_name);
 int calculate_total(Card* cards, int count);
 int should_player_draw_third(int player_total);
 int should_banker_draw_third(int banker_total, int player_third_card_value);
-void display_rules();
 void display_stats();
 int validate_input(int min, int max);
+void add_result(Winner winner, int player_total, int banker_total);
+void display_last_results();
+const char* winner_symbol(Winner w);
 
 // Main function
 int main() {
@@ -53,18 +63,10 @@ int main() {
 // Initialize the game
 void start() {
     printf("╔══════════════════════════════════════╗\n");
-    printf("║        BACCARAT CARD GAME            ║\n");
-    printf("║     Complete Rules Implementation    ║\n");
+    printf("║               BACCARAT               ║\n");
     printf("╚══════════════════════════════════════╝\n\n");
     
     printf("Welcome! You start with %d coins.\n", coins);
-    printf("Would you like to see the rules? (1=Yes, 0=No): ");
-    
-    int show_rules = validate_input(0, 1);
-    if (show_rules) {
-        display_rules();
-    }
-    
     init_deck();
     shuffle_deck();
     game_loop();
@@ -87,6 +89,12 @@ void game_loop() {
         printf("                ROUND %d\n", rounds_played);
         printf("═══════════════════════════════════════\n");
         printf("💰 Current coins: %d\n\n", coins);
+        
+        // Pokaż historię wyników jeśli są jakieś
+        if (results_count > 0) {
+            display_last_results();
+            printf("\n");
+        }
         
         // Get bet type and amount
         int bet_type = get_bet_type();
@@ -175,17 +183,13 @@ void play_round(int bet_type, int bet_amount) {
         }
     }
     
-    // Final card display
-    printf("🎯 Final Results:\n");
-    display_cards(player_cards, player_card_count, "Player");
-    printf("   Player final total: %d\n\n", player_total);
-    
-    display_cards(banker_cards, banker_card_count, "Banker");
-    printf("   Banker final total: %d\n\n", banker_total);
     
     // Determine winner and calculate payout
     Winner result = evaluate_winner(player_total, banker_total);
     printf("🏆 Result: %s wins!\n", winner_str(result));
+    
+    // Dodaj wynik do historii
+    add_result(result, player_total, banker_total);
     
     // Calculate winnings
     int winnings = 0;
@@ -195,7 +199,7 @@ void play_round(int bet_type, int bet_amount) {
         } else if (result == PLAYER) {
             winnings = bet_amount * 2; // 1:1 payout (double your bet)
         } else { // BANKER
-            winnings = (bet_amount * 2) - (bet_amount / 20); // 1:1 minus 5% commission
+            winnings = (bet_amount * 2); // 1:1 
         }
         
         coins = coins - bet_amount + winnings;
@@ -306,7 +310,7 @@ Winner evaluate_winner(int p_total, int b_total) {
 // Get bet type from user
 int get_bet_type() {
     printf("Choose your bet:\n");
-    printf("0 - 🏦 Banker (1:1, 5%% commission)\n");
+    printf("0 - 🏦 Banker (1:1);
     printf("1 - 👤 Player (1:1)\n");
     printf("2 - 🤝 Tie (8:1)\n");
     printf("Your choice (0-2): ");
@@ -330,6 +334,53 @@ int validate_input(int min, int max) {
             printf("❌ Invalid input. Please enter a number between %d and %d: ", min, max);
             while (getchar() != '\n'); // Clear input buffer
         }
+    }
+}
+
+// Dodaj wynik do historii
+void add_result(Winner winner, int player_total, int banker_total) {
+    // Przesuń wszystkie wyniki o jedną pozycję w lewo jeśli tablica jest pełna
+    if (results_count >= 10) {
+        for (int i = 0; i < 9; i++) {
+            last_results[i] = last_results[i + 1];
+        }
+        results_count = 9;
+    }
+    
+    // Dodaj nowy wynik na końcu
+    last_results[results_count].winner = winner;
+    last_results[results_count].player_total = player_total;
+    last_results[results_count].banker_total = banker_total;
+    results_count++;
+}
+
+// Wyświetl ostatnie wyniki
+void display_last_results() {
+    printf("📊 Last %d results: ", results_count);
+    for (int i = 0; i < results_count; i++) {
+        printf("%s", winner_symbol(last_results[i].winner));
+        if (i < results_count - 1) printf(" ");
+    }
+    printf("\n");
+    
+    // Szczegółowa historia (opcjonalnie)
+    printf("   Detailed: ");
+    for (int i = 0; i < results_count; i++) {
+        printf("%s(%d-%d)", 
+               winner_symbol(last_results[i].winner),
+               last_results[i].player_total,
+               last_results[i].banker_total);
+        if (i < results_count - 1) printf(" ");
+    }
+}
+
+// Symbol zwycięzcy dla kompaktowego wyświetlania
+const char* winner_symbol(Winner w) {
+    switch (w) {
+        case BANKER: return "🏦";
+        case PLAYER: return "👤";
+        case TIE: return "🤝";
+        default: return "❓";
     }
 }
 
@@ -360,32 +411,6 @@ const char* suit_name(Suit suit) {
         case SPADES: return "Spades";
         default: return "Unknown";
     }
-}
-
-// Display game rules
-void display_rules() {
-    printf("\n╔══════════════════════════════════════╗\n");
-    printf("║             BACCARAT RULES           ║\n");
-    printf("╚══════════════════════════════════════╝\n");
-    printf("🎯 OBJECTIVE: Bet on which hand will be closer to 9\n\n");
-    printf("🃏 CARD VALUES:\n");
-    printf("   • Ace = 1 point\n");
-    printf("   • 2-9 = Face value\n");
-    printf("   • 10, J, Q, K = 0 points\n\n");
-    printf("📊 SCORING:\n");
-    printf("   • Only rightmost digit counts (e.g., 15 = 5)\n");
-    printf("   • Best possible hand = 9\n\n");
-    printf("🎲 BETTING OPTIONS:\n");
-    printf("   • Player: 1:1 payout\n");
-    printf("   • Banker: 1:1 payout (5%% commission)\n");
-    printf("   • Tie: 8:1 payout\n\n");
-    printf("🎴 DRAWING RULES:\n");
-    printf("   • Player draws 3rd card if total ≤ 5\n");
-    printf("   • Banker follows complex rules based on player's 3rd card\n");
-    printf("   • Natural 8 or 9 stops all drawing\n\n");
-    printf("Press Enter to continue...");
-    getchar();
-    getchar();
 }
 
 // Display current game statistics
