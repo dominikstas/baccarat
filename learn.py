@@ -517,6 +517,7 @@ def main():
     # Inicjalizacja modelu
     predictor = BaccaratPredictor(window_size=10)
     
+    #test
     # Wczytanie i analiza danych
     df = predictor.load_data('piecdziesiona.csv')
     predictor.analyze_data()
