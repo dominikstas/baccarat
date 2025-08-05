@@ -518,6 +518,7 @@ def main():
     predictor = BaccaratPredictor(window_size=10)
     
     # Wczytanie i analiza danych
+    # test gita
     df = predictor.load_data('piecdziesiona.csv')
     predictor.analyze_data()
     
